@@ -51,6 +51,9 @@ const rpcClientMock = {
     searchEntries: vi.fn(),
     writeFile: vi.fn(),
   },
+  providers: {
+    listCommands: vi.fn(),
+  },
   shell: {
     openInEditor: vi.fn(),
   },

@@ -8,6 +8,7 @@ import {
   type ProviderKind,
   type ProjectEntry,
   type ProjectId,
+  type ProviderCommandEntry,
   type ProviderApprovalDecision,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
@@ -29,6 +30,7 @@ import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useGitStatus } from "~/lib/gitStatusState";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
+import { providerCommandsQueryOptions } from "~/lib/providerCommandsReactQuery";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import {
@@ -206,6 +208,7 @@ const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
+const EMPTY_PROVIDER_COMMAND_ENTRIES: ReadonlyArray<ProviderCommandEntry> = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 
@@ -1443,6 +1446,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }),
   );
   const workspaceEntries = workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
+  const isProviderCommandsTrigger =
+    composerTriggerKind === "slash-command" || composerTriggerKind === "cli-skill";
+  const providerCommandsQuery = useQuery(
+    providerCommandsQueryOptions({
+      provider: selectedProvider,
+      cwd: gitCwd,
+      enabled: isProviderCommandsTrigger,
+    }),
+  );
+  const providerCommands = providerCommandsQuery.data?.commands ?? EMPTY_PROVIDER_COMMAND_ENTRIES;
+  const providerSkills = providerCommandsQuery.data?.skills ?? EMPTY_PROVIDER_COMMAND_ENTRIES;
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
@@ -1457,7 +1471,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
 
     if (composerTrigger.kind === "slash-command") {
-      const slashCommandItems = [
+      const builtInItems: ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>> = [
         {
           id: "slash:model",
           type: "slash-command",
@@ -1479,14 +1493,48 @@ export default function ChatView({ threadId }: ChatViewProps) {
           label: "/default",
           description: "Switch this thread back to normal build mode",
         },
-      ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
+      ];
+      const cliCommandItems: ReadonlyArray<Extract<ComposerCommandItem, { type: "cli-command" }>> =
+        providerCommands.map((entry) => ({
+          id: `cli:${selectedProvider}:${entry.source}:${entry.name}`,
+          type: "cli-command",
+          command: entry.name,
+          provider: selectedProvider,
+          source: entry.source,
+          label: `/${entry.name}`,
+          description:
+            entry.description || (entry.source === "project" ? "Project command" : "User command"),
+        }));
+      const allItems: ComposerCommandItem[] = [...builtInItems, ...cliCommandItems];
       const query = composerTrigger.query.trim().toLowerCase();
       if (!query) {
-        return [...slashCommandItems];
+        return allItems;
       }
-      return slashCommandItems.filter(
-        (item) => item.command.includes(query) || item.label.slice(1).includes(query),
-      );
+      return allItems.filter((item) => {
+        const haystack = (item.label + " " + item.description).toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+
+    if (composerTrigger.kind === "cli-skill") {
+      const skillItems: ComposerCommandItem[] = providerSkills.map((entry) => ({
+        id: `skill:${selectedProvider}:${entry.source}:${entry.name}`,
+        type: "cli-skill",
+        skill: entry.name,
+        provider: selectedProvider,
+        source: entry.source,
+        label: `$${entry.name}`,
+        description:
+          entry.description || (entry.source === "project" ? "Project skill" : "User skill"),
+      }));
+      const query = composerTrigger.query.trim().toLowerCase();
+      if (!query) {
+        return skillItems;
+      }
+      return skillItems.filter((item) => {
+        const haystack = (item.label + " " + item.description).toLowerCase();
+        return haystack.includes(query);
+      });
     }
 
     return searchableModelOptions
@@ -1505,7 +1553,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
         label: name,
         description: `${providerLabel} · ${slug}`,
       }));
-  }, [composerTrigger, searchableModelOptions, workspaceEntries]);
+  }, [
+    composerTrigger,
+    searchableModelOptions,
+    workspaceEntries,
+    providerCommands,
+    providerSkills,
+    selectedProvider,
+  ]);
   const composerMenuOpen = Boolean(composerTrigger);
   const activeComposerMenuItem = useMemo(
     () =>
@@ -3700,6 +3755,42 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (!trigger) return;
       if (item.type === "path") {
         const replacement = `@${item.path} `;
+        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+          snapshot.value,
+          trigger.rangeEnd,
+          replacement,
+        );
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          replacementRangeEnd,
+          replacement,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+        );
+        if (applied) {
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
+      if (item.type === "cli-command") {
+        const replacement = `/${item.command} `;
+        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+          snapshot.value,
+          trigger.rangeEnd,
+          replacement,
+        );
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          replacementRangeEnd,
+          replacement,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+        );
+        if (applied) {
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
+      if (item.type === "cli-skill") {
+        const replacement = `$${item.skill} `;
         const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
           snapshot.value,
           trigger.rangeEnd,

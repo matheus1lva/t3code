@@ -60,6 +60,30 @@ describe("detectComposerTrigger", () => {
     });
   });
 
+  it("detects unknown slash commands as cli commands while typing", () => {
+    const text = "/commit";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "slash-command",
+      query: "commit",
+      rangeStart: 0,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("detects $ skill trigger while typing", () => {
+    const text = "$pdf";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "cli-skill",
+      query: "pdf",
+      rangeStart: 0,
+      rangeEnd: text.length,
+    });
+  });
+
   it("detects @path trigger in the middle of existing text", () => {
     // User typed @ between "inspect " and "in this sentence"
     const text = "Please inspect @in this sentence";

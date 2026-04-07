@@ -13,6 +13,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
+  ProviderCommandsListError,
   OrchestrationReplayEventsError,
   ThreadId,
   type TerminalEvent,
@@ -47,6 +48,7 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner";
+import { discoverProviderCommands } from "./provider/providerCommandsDiscovery";
 
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
@@ -560,6 +562,20 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             }),
           ),
           { "rpc.aggregate": "workspace" },
+        ),
+      [WS_METHODS.providersListCommands]: (input) =>
+        observeRpcEffect(
+          WS_METHODS.providersListCommands,
+          discoverProviderCommands(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderCommandsListError({
+                  message: `Failed to list provider commands: ${cause.message}`,
+                  cause: cause.cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "provider" },
         ),
       [WS_METHODS.shellOpenInEditor]: (input) =>
         observeRpcEffect(WS_METHODS.shellOpenInEditor, open.openInEditor(input), {
