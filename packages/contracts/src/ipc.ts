@@ -24,6 +24,7 @@ import type {
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "./project";
+import type { ProviderCommandsListInput, ProviderCommandsListResult } from "./providerCommands";
 import type {
   ServerConfig,
   ServerProviderUpdatedPayload,
@@ -140,6 +141,9 @@ export interface NativeApi {
   projects: {
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+  };
+  providers: {
+    listCommands: (input: ProviderCommandsListInput) => Promise<ProviderCommandsListResult>;
   };
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;
