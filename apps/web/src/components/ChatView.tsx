@@ -1505,7 +1505,27 @@ export default function ChatView({ threadId }: ChatViewProps) {
           description:
             entry.description || (entry.source === "project" ? "Project command" : "User command"),
         }));
-      const allItems: ComposerCommandItem[] = [...builtInItems, ...cliCommandItems];
+      // Claude Code invokes skills via `/skill-name`, so surface discovered
+      // skills in the same slash menu. Codex has a separate `$` trigger and
+      // does not treat skills as slash commands, so keep them out there.
+      const cliSkillItems: ReadonlyArray<Extract<ComposerCommandItem, { type: "cli-skill" }>> =
+        selectedProvider === "claudeAgent"
+          ? providerSkills.map((entry) => ({
+              id: `slash-skill:${selectedProvider}:${entry.source}:${entry.name}`,
+              type: "cli-skill",
+              skill: entry.name,
+              provider: selectedProvider,
+              source: entry.source,
+              label: `/${entry.name}`,
+              description:
+                entry.description || (entry.source === "project" ? "Project skill" : "User skill"),
+            }))
+          : [];
+      const allItems: ComposerCommandItem[] = [
+        ...builtInItems,
+        ...cliCommandItems,
+        ...cliSkillItems,
+      ];
       const query = composerTrigger.query.trim().toLowerCase();
       if (!query) {
         return allItems;
@@ -3790,7 +3810,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return;
       }
       if (item.type === "cli-skill") {
-        const replacement = `$${item.skill} `;
+        // When the skill was selected from the `/` slash menu (Claude only),
+        // insert it as `/skillname` to match native Claude Code invocation.
+        // Otherwise — i.e. from the `$` trigger — use the legacy `$skillname`
+        // form that existing Codex flows rely on.
+        const replacement =
+          trigger.kind === "slash-command" ? `/${item.skill} ` : `$${item.skill} `;
         const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
           snapshot.value,
           trigger.rangeEnd,
