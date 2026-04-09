@@ -18,7 +18,7 @@ import {
   type ServerProviderModel,
   ThreadId,
 } from "@t3tools/contracts";
-import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+import { DEFAULT_UNIFIED_SETTINGS, type McpServerConfig } from "@t3tools/contracts/settings";
 import { normalizeModelSlug } from "@t3tools/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
@@ -513,6 +513,293 @@ export function useSettingsRestore(onRestored?: () => void) {
     changedSettingLabels,
     restoreDefaults,
   };
+}
+
+// ── MCP Servers Section ──────────────────────────────────────────
+
+const EMPTY_MCP_SERVER: McpServerConfig = {
+  name: "",
+  transport: "stdio",
+  command: "",
+  args: [],
+  env: {},
+  enabled: true,
+};
+
+function McpServersSection() {
+  const settings = useSettings();
+  const { updateSettings } = useUpdateSettings();
+  const mcpServers = settings.mcpServers;
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+
+  const addServer = useCallback(() => {
+    const next = [...mcpServers, { ...EMPTY_MCP_SERVER, name: `server-${mcpServers.length + 1}` }];
+    updateSettings({ mcpServers: next });
+    setExpandedIndex(next.length - 1);
+  }, [mcpServers, updateSettings]);
+
+  const removeServer = useCallback(
+    (index: number) => {
+      const next = mcpServers.filter((_, i) => i !== index);
+      updateSettings({ mcpServers: next });
+      setExpandedIndex(null);
+    },
+    [mcpServers, updateSettings],
+  );
+
+  const updateServer = useCallback(
+    (index: number, patch: Partial<McpServerConfig>) => {
+      const next = mcpServers.map((server, i) => (i === index ? { ...server, ...patch } : server));
+      updateSettings({ mcpServers: next });
+    },
+    [mcpServers, updateSettings],
+  );
+
+  return (
+    <SettingsSection
+      title="MCP Servers"
+      headerAction={
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
+          onClick={addServer}
+          aria-label="Add MCP server"
+        >
+          <PlusIcon className="size-3" />
+        </Button>
+      }
+    >
+      {mcpServers.length === 0 ? (
+        <div className="px-4 py-6 text-center sm:px-5">
+          <p className="text-xs text-muted-foreground">
+            No MCP servers configured. Add a server to extend agent capabilities with external
+            tools.
+          </p>
+          <Button size="sm" variant="outline" className="mt-3" onClick={addServer}>
+            <PlusIcon className="size-3.5" />
+            Add MCP server
+          </Button>
+        </div>
+      ) : (
+        mcpServers.map((server, index) => (
+          <McpServerCard
+            // eslint-disable-next-line react/no-array-index-key -- servers are identified by position; no stable ID available
+            key={`mcp-${index}`}
+            server={server}
+            isExpanded={expandedIndex === index}
+            onToggleExpand={() => setExpandedIndex(expandedIndex === index ? null : index)}
+            onUpdate={(patch) => updateServer(index, patch)}
+            onRemove={() => removeServer(index)}
+          />
+        ))
+      )}
+    </SettingsSection>
+  );
+}
+
+function McpServerCard({
+  server,
+  isExpanded,
+  onToggleExpand,
+  onUpdate,
+  onRemove,
+}: {
+  server: McpServerConfig;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  onUpdate: (patch: Partial<McpServerConfig>) => void;
+  onRemove: () => void;
+}) {
+  const [newEnvKey, setNewEnvKey] = useState("");
+  const [newEnvValue, setNewEnvValue] = useState("");
+  const [argsInput, setArgsInput] = useState(server.args.join(" "));
+
+  const addEnvVar = useCallback(() => {
+    const key = newEnvKey.trim();
+    if (!key) return;
+    onUpdate({ env: { ...server.env, [key]: newEnvValue } });
+    setNewEnvKey("");
+    setNewEnvValue("");
+  }, [newEnvKey, newEnvValue, onUpdate, server.env]);
+
+  const removeEnvVar = useCallback(
+    (key: string) => {
+      const next = { ...server.env };
+      delete next[key];
+      onUpdate({ env: next });
+    },
+    [onUpdate, server.env],
+  );
+
+  return (
+    <div className="border-t border-border first:border-t-0">
+      <div className="px-4 py-3 sm:px-5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span
+              className={cn(
+                "size-2 shrink-0 rounded-full",
+                server.enabled ? "bg-emerald-500" : "bg-zinc-400 dark:bg-zinc-600",
+              )}
+            />
+            <span className="min-w-0 truncate text-sm font-medium text-foreground">
+              {server.name || "Unnamed server"}
+            </span>
+            <code className="hidden text-[11px] text-muted-foreground sm:inline">
+              {server.command}
+            </code>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
+              onClick={onToggleExpand}
+              aria-label={`Toggle ${server.name} details`}
+            >
+              <ChevronDownIcon
+                className={cn("size-3.5 transition-transform", isExpanded && "rotate-180")}
+              />
+            </Button>
+            <Switch
+              checked={server.enabled}
+              onCheckedChange={(checked) => onUpdate({ enabled: Boolean(checked) })}
+              aria-label={`Enable ${server.name}`}
+            />
+          </div>
+        </div>
+      </div>
+
+      <Collapsible open={isExpanded} onOpenChange={(open) => !open && onToggleExpand()}>
+        <CollapsibleContent>
+          <div className="space-y-0">
+            <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+              <label htmlFor={`mcp-name-${server.name}`} className="block">
+                <span className="text-xs font-medium text-foreground">Name</span>
+                <Input
+                  id={`mcp-name-${server.name}`}
+                  className="mt-1.5"
+                  value={server.name}
+                  onChange={(event) => onUpdate({ name: event.target.value })}
+                  placeholder="my-server"
+                  spellCheck={false}
+                />
+              </label>
+            </div>
+
+            <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+              <label htmlFor={`mcp-command-${server.name}`} className="block">
+                <span className="text-xs font-medium text-foreground">Command</span>
+                <Input
+                  id={`mcp-command-${server.name}`}
+                  className="mt-1.5"
+                  value={server.command}
+                  onChange={(event) => onUpdate({ command: event.target.value })}
+                  placeholder="npx"
+                  spellCheck={false}
+                />
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  The executable to launch the MCP server.
+                </span>
+              </label>
+            </div>
+
+            <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+              <label htmlFor={`mcp-args-${server.name}`} className="block">
+                <span className="text-xs font-medium text-foreground">Arguments</span>
+                <Input
+                  id={`mcp-args-${server.name}`}
+                  className="mt-1.5"
+                  value={argsInput}
+                  onChange={(event) => {
+                    setArgsInput(event.target.value);
+                    const args = event.target.value.split(" ").filter((arg) => arg.length > 0);
+                    onUpdate({ args });
+                  }}
+                  placeholder="-y @modelcontextprotocol/server-filesystem /path"
+                  spellCheck={false}
+                />
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Space-separated arguments passed to the command.
+                </span>
+              </label>
+            </div>
+
+            <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+              <div className="text-xs font-medium text-foreground">Environment variables</div>
+              {Object.keys(server.env).length > 0 ? (
+                <div className="mt-2 space-y-1.5">
+                  {Object.entries(server.env).map(([key, value]) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <code className="min-w-0 shrink truncate text-xs text-foreground/90">
+                        {key}
+                      </code>
+                      <span className="text-xs text-muted-foreground">=</span>
+                      <code className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                        {value}
+                      </code>
+                      <button
+                        type="button"
+                        className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                        aria-label={`Remove ${key}`}
+                        onClick={() => removeEnvVar(key)}
+                      >
+                        <XIcon className="size-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                <Input
+                  value={newEnvKey}
+                  onChange={(event) => setNewEnvKey(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addEnvVar();
+                    }
+                  }}
+                  placeholder="KEY"
+                  spellCheck={false}
+                  className="sm:w-36"
+                />
+                <Input
+                  value={newEnvValue}
+                  onChange={(event) => setNewEnvValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addEnvVar();
+                    }
+                  }}
+                  placeholder="value"
+                  spellCheck={false}
+                />
+                <Button className="shrink-0" variant="outline" onClick={addEnvVar}>
+                  <PlusIcon className="size-3.5" />
+                  Add
+                </Button>
+              </div>
+            </div>
+
+            <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-xs text-destructive hover:text-destructive"
+                onClick={onRemove}
+              >
+                <XIcon className="size-3.5" />
+                Remove server
+              </Button>
+            </div>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
 }
 
 export function GeneralSettingsPanel() {
@@ -1410,6 +1697,8 @@ export function GeneralSettingsPanel() {
           );
         })}
       </SettingsSection>
+
+      <McpServersSection />
 
       <SettingsSection title="Advanced">
         <SettingsRow
