@@ -39,6 +39,21 @@ export type ClientSettings = typeof ClientSettingsSchema.Type;
 
 export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientSettingsSchema)({});
 
+// ── MCP Server Configuration ─────────────────────────────────
+
+export const McpServerTransport = Schema.Literals(["stdio", "sse"]);
+export type McpServerTransport = typeof McpServerTransport.Type;
+
+export const McpServerConfig = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  transport: McpServerTransport.pipe(Schema.withDecodingDefault(() => "stdio" as const)),
+  command: TrimmedNonEmptyString,
+  args: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+  env: Schema.Record(Schema.String, Schema.String).pipe(Schema.withDecodingDefault(() => ({}))),
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+});
+export type McpServerConfig = typeof McpServerConfig.Type;
+
 // ── Server Settings (server-authoritative) ────────────────────
 
 export const ThreadEnvMode = Schema.Literals(["local", "worktree"]);
@@ -95,6 +110,9 @@ export const ServerSettings = Schema.Struct({
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   }).pipe(Schema.withDecodingDefault(() => ({}))),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(() => ({}))),
+
+  // MCP servers available to all provider sessions
+  mcpServers: Schema.Array(McpServerConfig).pipe(Schema.withDecodingDefault(() => [])),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -177,5 +195,6 @@ export const ServerSettingsPatch = Schema.Struct({
       claudeAgent: Schema.optionalKey(ClaudeSettingsPatch),
     }),
   ),
+  mcpServers: Schema.optionalKey(Schema.Array(McpServerConfig)),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;

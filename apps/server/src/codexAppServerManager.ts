@@ -115,6 +115,14 @@ export interface CodexAppServerSendTurnInput {
   readonly interactionMode?: ProviderInteractionMode;
 }
 
+export interface McpServerEntry {
+  readonly name: string;
+  readonly transport?: "stdio" | "sse";
+  readonly command: string;
+  readonly args?: readonly string[];
+  readonly env?: Readonly<Record<string, string>>;
+}
+
 export interface CodexAppServerStartSessionInput {
   readonly threadId: ThreadId;
   readonly provider?: "codex";
@@ -125,6 +133,7 @@ export interface CodexAppServerStartSessionInput {
   readonly binaryPath: string;
   readonly homePath?: string;
   readonly runtimeMode: RuntimeMode;
+  readonly mcpServers?: readonly McpServerEntry[];
 }
 
 export interface CodexThreadTurnSnapshot {
@@ -530,9 +539,23 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ...mapCodexRuntimeMode(input.runtimeMode ?? "full-access"),
       };
 
+      const mcpServers =
+        input.mcpServers && input.mcpServers.length > 0
+          ? input.mcpServers.map((server) => ({
+              name: server.name,
+              transport: {
+                type: server.transport ?? "stdio",
+                command: server.command,
+                ...(server.args && server.args.length > 0 ? { args: server.args } : {}),
+                ...(server.env && Object.keys(server.env).length > 0 ? { env: server.env } : {}),
+              },
+            }))
+          : undefined;
+
       const threadStartParams = {
         ...sessionOverrides,
         experimentalRawEvents: false,
+        ...(mcpServers ? { mcpServers } : {}),
       };
       const resumeThreadId = readResumeThreadId(input);
       this.emitLifecycleEvent(

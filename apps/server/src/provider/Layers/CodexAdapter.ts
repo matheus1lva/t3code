@@ -1391,8 +1391,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         });
       }
 
-      const codexSettings = yield* serverSettingsService.getSettings.pipe(
-        Effect.map((settings) => settings.providers.codex),
+      const serverSettings = yield* serverSettingsService.getSettings.pipe(
         Effect.mapError(
           (error) =>
             new ProviderAdapterProcessError({
@@ -1403,8 +1402,10 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             }),
         ),
       );
+      const codexSettings = serverSettings.providers.codex;
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
+      const enabledMcpServers = serverSettings.mcpServers.filter((s) => s.enabled);
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
         provider: "codex",
@@ -1419,6 +1420,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         ...(input.modelSelection?.provider === "codex" && input.modelSelection.options?.fastMode
           ? { serviceTier: "fast" }
           : {}),
+        ...(enabledMcpServers.length > 0 ? { mcpServers: enabledMcpServers } : {}),
       };
 
       return yield* Effect.tryPromise({
