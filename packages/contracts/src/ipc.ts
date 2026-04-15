@@ -46,8 +46,9 @@ import type {
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
   OrchestrationGetTurnDiffResult,
-  OrchestrationEvent,
-  OrchestrationReadModel,
+  OrchestrationShellStreamItem,
+  OrchestrationSubscribeThreadInput,
+  OrchestrationThreadStreamItem,
 } from "./orchestration";
 import type { EnvironmentId } from "./baseSchemas";
 import { EditorId } from "./editor";
@@ -72,6 +73,14 @@ export type DesktopUpdateStatus =
 
 export type DesktopRuntimeArch = "arm64" | "x64" | "other";
 export type DesktopTheme = "light" | "dark" | "system";
+export type DesktopUpdateChannel = "latest" | "nightly";
+export type DesktopAppStageLabel = "Alpha" | "Dev" | "Nightly";
+
+export interface DesktopAppBranding {
+  baseName: string;
+  stageLabel: DesktopAppStageLabel;
+  displayName: string;
+}
 
 export interface DesktopRuntimeInfo {
   hostArch: DesktopRuntimeArch;
@@ -82,6 +91,7 @@ export interface DesktopRuntimeInfo {
 export interface DesktopUpdateState {
   enabled: boolean;
   status: DesktopUpdateStatus;
+  channel: DesktopUpdateChannel;
   currentVersion: string;
   hostArch: DesktopRuntimeArch;
   appArch: DesktopRuntimeArch;
@@ -131,6 +141,7 @@ export interface DesktopServerExposureState {
 }
 
 export interface DesktopBridge {
+  getAppBranding: () => DesktopAppBranding | null;
   getLocalEnvironmentBootstrap: () => DesktopEnvironmentBootstrap | null;
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
@@ -153,6 +164,7 @@ export interface DesktopBridge {
   openExternal: (url: string) => Promise<boolean>;
   onMenuAction: (listener: (action: string) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
+  setUpdateChannel: (channel: DesktopUpdateChannel) => Promise<DesktopUpdateState>;
   checkForUpdate: () => Promise<DesktopUpdateCheckResult>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
@@ -249,15 +261,20 @@ export interface EnvironmentApi {
     ) => () => void;
   };
   orchestration: {
-    getSnapshot: () => Promise<OrchestrationReadModel>;
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;
     getFullThreadDiff: (
       input: OrchestrationGetFullThreadDiffInput,
     ) => Promise<OrchestrationGetFullThreadDiffResult>;
-    replayEvents: (fromSequenceExclusive: number) => Promise<OrchestrationEvent[]>;
-    onDomainEvent: (
-      callback: (event: OrchestrationEvent) => void,
+    subscribeShell: (
+      callback: (event: OrchestrationShellStreamItem) => void,
+      options?: {
+        onResubscribe?: () => void;
+      },
+    ) => () => void;
+    subscribeThread: (
+      input: OrchestrationSubscribeThreadInput,
+      callback: (event: OrchestrationThreadStreamItem) => void,
       options?: {
         onResubscribe?: () => void;
       },
